@@ -51,14 +51,15 @@ vừa đơn giản, tránh bug incremental self-join; nếu volume lớn lên th
 
 **MASTER** (thực thể current-state, dedupe/conform):
 - `master_shopify_order` — 1 dòng/đơn + refund tổng hợp + cờ trạng thái
+- `master_shopify_order_line` — 1 dòng/line item + context đơn + **discount/refund đã phân bổ xuống dòng** (gross_share, discount_alloc, refund_alloc, net_line_revenue). NỀN SKU-level tái dùng cho mọi fact/phân tích tới SKU.
 - `master_shopify_customer` — 1 dòng/khách + phân khúc + bucket LTV
 - `master_shopify_sku` — 1 dòng/SKU: cost + giá + tên variant/product + tồn available hiện tại
 - `master_shopify_inventory` — 1 dòng/SKU×location (snapshot is_latest)
+- `master_shopify_abandoned_checkout_line` — 1 dòng/line item giỏ bỏ quên + context checkout. Nền phân tích SKU bị bỏ giỏ.
 
 **FACT** (grain sự kiện):
-- `fact_sku_pnl_daily` — P&L SKU×ngày, **phân bổ order-level discount + refund xuống SKU** theo tỷ trọng
-  gross. gateway_fee = NULL (Shopify không cấp). COGS từ `unit_cost` Shopify (Airtable override sau).
-  Bảng RIÊNG Shopify (channel='shopify'); union cross-channel ở BI sau.
+- `fact_sku_pnl_daily` — P&L SKU×ngày. Build TRÊN `master_shopify_order_line` (allocation đã làm ở master)
+  + `master_shopify_sku` (COGS). gateway_fee = NULL. Bảng RIÊNG Shopify; union cross-channel ở BI sau.
 - `fact_inventory_daily` — tồn SKU×ngày (snapshot mới nhất/ngày, sum theo location)
 - `fact_abandoned_checkout` — 1 dòng/giỏ bỏ quên + giá trị treo + thời gian recover
 

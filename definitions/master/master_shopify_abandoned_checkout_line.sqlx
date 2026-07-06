@@ -1,0 +1,60 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "Master: 1 dòng/line item giỏ bỏ quên — conform + context checkout (ngày, đã recover, khách, geo). Nền phân tích SKU bị bỏ giỏ (mở khóa widget 'SKU bị bỏ giỏ nhiều nhất' của SHOP-03 sau).",
+  tags: ["shopify", "master"],
+  assertions: { uniqueKey: ["checkout_id", "line_item_id"] }
+}
+
+WITH lines AS (
+  SELECT
+    li.brand,
+    li.channel,
+    li.checkout_id,
+    li.line_item_id,
+    li.checkout_created_at,
+    li.checkout_updated_at,
+    li.is_recovered,
+    li.sku,
+    li.variant_id,
+    li.product_id,
+    li.variant_title,
+    li.title,
+    li.quantity,
+    li.original_unit_price,
+    li.original_total_price,
+    li.discounted_unit_price,
+    li.discounted_total_price
+  FROM ${ref("stg_shopify_abandoned_checkout_line_items")} li
+  -- Dedupe theo (checkout, line) — giỏ bỏ quên re-ingest khi update
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY li.checkout_id, li.line_item_id ORDER BY li.checkout_updated_at DESC
+  ) = 1
+)
+
+SELECT
+  l.brand,
+  l.channel,
+  l.checkout_id,
+  l.line_item_id,
+  DATE(l.checkout_created_at)                        AS checkout_date,
+  l.checkout_created_at,
+  l.checkout_updated_at,
+  l.is_recovered,
+  c.customer_id,
+  c.email_hash,
+  c.shipping_province_code,
+  l.sku,
+  l.variant_id,
+  l.product_id,
+  l.variant_title,
+  l.title,
+  l.quantity,
+  l.original_unit_price,
+  l.original_total_price,
+  l.discounted_unit_price,
+  l.discounted_total_price,
+  -- giá trị treo của dòng: chưa recover thì tính, recover rồi = 0
+  IF(l.is_recovered, 0, l.discounted_total_price)    AS line_value_at_risk
+FROM lines l
+LEFT JOIN ${ref("stg_shopify_abandoned_checkouts")} c USING (checkout_id)

@@ -1,0 +1,95 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "Master: 1 dòng/line item đơn hàng — conform + gắn context đơn (ngày, trạng thái, khách) + PHÂN BỔ order-level discount & refund xuống dòng theo tỷ trọng gross. Là NỀN SKU-level tái dùng cho mọi fact/phân tích tới SKU (fact_sku_pnl_daily build trên bảng này).",
+  tags: ["shopify", "master"],
+  assertions: { uniqueKey: ["line_item_id"] }
+}
+
+WITH lines AS (
+  SELECT
+    li.brand,
+    li.channel,
+    li.line_item_id,
+    li.order_id,
+    li.order_created_at,
+    li.order_updated_at,
+    li.sku,
+    li.variant_id,
+    li.product_id,
+    li.variant_title,
+    li.item_full_name,
+    li.title,
+    li.quantity,
+    li.current_quantity,
+    li.original_unit_price,
+    li.discounted_unit_price,
+    li.total_discount                                                          AS line_discount,
+    li.quantity * COALESCE(li.original_unit_price, li.discounted_unit_price, 0) AS line_gross
+  FROM ${ref("stg_shopify_order_line_items")} li
+  -- Dedupe phòng khi cùng line_item_id xuất hiện ở nhiều phiên bản order
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY li.line_item_id ORDER BY li.order_updated_at DESC) = 1
+),
+
+order_ctx AS (
+  SELECT
+    o.order_id,
+    o.order_name,
+    DATE(o.order_created_at)            AS order_date,
+    o.financial_status,
+    o.fulfillment_status,
+    o.customer_id,
+    o.source_name,
+    o.total_discounts_amount            AS order_total_discounts,
+    o.total_price_amount                AS order_total_price
+  FROM ${ref("stg_shopify_orders")} o
+),
+
+refund_agg AS (
+  SELECT order_id, SUM(IF(refund_type = 'refund', total_refunded_amount, 0)) AS order_refunded
+  FROM ${ref("stg_shopify_refunds")}
+  GROUP BY order_id
+),
+
+order_gross AS (
+  SELECT order_id, SUM(line_gross) AS order_gross
+  FROM lines
+  GROUP BY order_id
+)
+
+SELECT
+  l.brand,
+  l.channel,
+  l.line_item_id,
+  l.order_id,
+  c.order_name,
+  c.order_date,
+  l.order_created_at,
+  l.order_updated_at,
+  c.financial_status,
+  c.fulfillment_status,
+  c.customer_id,
+  c.source_name,
+  l.sku,
+  l.variant_id,
+  l.product_id,
+  l.variant_title,
+  l.item_full_name,
+  l.title,
+  l.quantity,
+  l.current_quantity,
+  l.original_unit_price,
+  l.discounted_unit_price,
+  l.line_discount,
+  l.line_gross,
+  g.order_gross,
+  COALESCE(SAFE_DIVIDE(l.line_gross, NULLIF(g.order_gross, 0)), 0)                    AS gross_share,
+  -- discount & refund cấp order, phân bổ xuống dòng theo tỷ trọng gross
+  c.order_total_discounts * COALESCE(SAFE_DIVIDE(l.line_gross, NULLIF(g.order_gross, 0)), 0) AS discount_alloc,
+  COALESCE(r.order_refunded, 0) * COALESCE(SAFE_DIVIDE(l.line_gross, NULLIF(g.order_gross, 0)), 0) AS refund_alloc,
+  -- doanh thu thuần dòng (đã trừ discount phân bổ)
+  l.line_gross - c.order_total_discounts * COALESCE(SAFE_DIVIDE(l.line_gross, NULLIF(g.order_gross, 0)), 0) AS net_line_revenue
+FROM lines l
+JOIN order_ctx   c USING (order_id)
+JOIN order_gross g USING (order_id)
+LEFT JOIN refund_agg r USING (order_id)
