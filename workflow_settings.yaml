@@ -1,6 +1,9 @@
 # afw-shopify-dataform — Dataform core 3.x
-# Đổi defaultProject theo môi trường: allforwood (prod) / allforwood-dev (dev)
-defaultProject: allforwood
+# defaultProject PHẢI trùng project chứa dữ liệu raw (nơi C# backfill ghi vào)
+# và trùng project chứa repo Dataform này:
+#   - Dev : allforwood-dev  (đang dùng — raw data + repo ở đây)
+#   - Prod: allforwood      (chỉ đổi khi đã tạo dataset + backfill raw sang prod)
+defaultProject: allforwood-dev
 defaultLocation: US
 defaultDataset: afw_shopify_staging
 defaultAssertionDataset: afw_shopify_assertions
