@@ -1,0 +1,53 @@
+config {
+  type: "table",
+  schema: "afw_shopify_staging",
+  description: "Inventory levels unnest từ variant payload: 1 row = 1 (sku, location, snapshot). GIỮ FULL TIME-SERIES (mỗi lần poll 30p là 1 snapshot) — tồn hiện tại lấy is_latest = TRUE. qty_available = warehouseATS phía Shopify (Lecangs fulfill), KHÔNG phải channelATS. DQ note: số này phải khớp raw_lecangs_inventory.",
+  bigquery: {
+    partitionBy: "DATE(snapshot_at)",
+    clusterBy: ["brand", "sku"]
+  },
+  tags: ["shopify", "staging"]
+}
+
+WITH exploded AS (
+  SELECT
+    JSON_VALUE(v.raw_payload, '$.id')                                    AS variant_id,
+    JSON_VALUE(v.raw_payload, '$.sku')                                   AS sku,
+    JSON_VALUE(v.raw_payload, '$.inventoryItem.id')                      AS inventory_item_id,
+    JSON_VALUE(lvl, '$.location.id')                                     AS location_id,
+    JSON_VALUE(lvl, '$.location.name')                                   AS location_name,
+    lvl,
+    v._ingested_at                                                       AS snapshot_at,
+    v.brand
+  FROM ${ref("raw_shopify_inventory_levels")} v,
+  UNNEST(JSON_QUERY_ARRAY(v.raw_payload, '$.inventoryItem.inventoryLevels.edges')) AS edge,
+  UNNEST([JSON_QUERY(edge, '$.node')]) AS lvl
+)
+
+SELECT
+  variant_id,
+  sku,
+  inventory_item_id,
+  location_id,
+  location_name,
+  -- Pivot quantities[] {name, quantity} thành 4 cột
+  (SELECT SAFE_CAST(JSON_VALUE(q, '$.quantity') AS INT64)
+   FROM UNNEST(JSON_QUERY_ARRAY(lvl, '$.quantities')) q
+   WHERE JSON_VALUE(q, '$.name') = 'available')                          AS qty_available,
+  (SELECT SAFE_CAST(JSON_VALUE(q, '$.quantity') AS INT64)
+   FROM UNNEST(JSON_QUERY_ARRAY(lvl, '$.quantities')) q
+   WHERE JSON_VALUE(q, '$.name') = 'on_hand')                            AS qty_on_hand,
+  (SELECT SAFE_CAST(JSON_VALUE(q, '$.quantity') AS INT64)
+   FROM UNNEST(JSON_QUERY_ARRAY(lvl, '$.quantities')) q
+   WHERE JSON_VALUE(q, '$.name') = 'committed')                          AS qty_committed,
+  (SELECT SAFE_CAST(JSON_VALUE(q, '$.quantity') AS INT64)
+   FROM UNNEST(JSON_QUERY_ARRAY(lvl, '$.quantities')) q
+   WHERE JSON_VALUE(q, '$.name') = 'incoming')                           AS qty_incoming,
+  snapshot_at,
+  -- is_latest: snapshot mới nhất per (sku, location) = tồn hiện tại
+  ROW_NUMBER() OVER (
+    PARTITION BY sku, location_id ORDER BY snapshot_at DESC
+  ) = 1                                                                  AS is_latest,
+  brand,
+  'shopify'                                                              AS channel
+FROM exploded

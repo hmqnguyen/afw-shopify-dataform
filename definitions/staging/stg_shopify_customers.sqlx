@@ -1,0 +1,42 @@
+config {
+  type: "table",
+  schema: "afw_shopify_staging",
+  description: "Customer profile — PII đã xử lý theo Governance: email hash SHA256, KHÔNG mang email/phone/tên plaintext lên tầng này trở lên. Plaintext chỉ tồn tại ở raw (IAM-controlled). LTV (amount_spent, number_of_orders) Shopify tự tính.",
+  bigquery: {
+    clusterBy: ["brand", "customer_id"]
+  },
+  tags: ["shopify", "staging", "pii-processed"]
+}
+
+WITH latest AS (
+  SELECT raw_payload, _ingested_at, brand
+  FROM ${ref("raw_shopify_customers")}
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY JSON_VALUE(raw_payload, '$.id')
+    ORDER BY TIMESTAMP(JSON_VALUE(raw_payload, '$.updatedAt')) DESC, _ingested_at DESC
+  ) = 1
+)
+
+SELECT
+  JSON_VALUE(raw_payload, '$.id')                                        AS customer_id,
+  -- Hash để join/đếm distinct mà không lộ email. LOWER+TRIM chuẩn hoá trước
+  -- khi hash để cùng 1 email không sinh 2 hash khác nhau.
+  TO_HEX(SHA256(LOWER(TRIM(JSON_VALUE(raw_payload, '$.email')))))        AS email_hash,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.createdAt'))                      AS customer_created_at,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.updatedAt'))                      AS customer_updated_at,
+  JSON_VALUE(raw_payload, '$.state')                                     AS state,
+  ARRAY_TO_STRING(
+    ARRAY(SELECT JSON_VALUE(t) FROM UNNEST(JSON_QUERY_ARRAY(raw_payload, '$.tags')) t), ',')
+                                                                         AS tags,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.verifiedEmail') AS BOOL)          AS verified_email,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.numberOfOrders') AS INT64)        AS number_of_orders,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.amountSpent.amount') AS NUMERIC)  AS amount_spent,
+  JSON_VALUE(raw_payload, '$.amountSpent.currencyCode')                  AS currency_code,
+  JSON_VALUE(raw_payload, '$.defaultAddress.provinceCode')               AS province_code,
+  JSON_VALUE(raw_payload, '$.defaultAddress.countryCodeV2')              AS country_code,
+  JSON_VALUE(raw_payload, '$.defaultAddress.zip')                        AS zip,
+  brand,
+  'shopify'                                                              AS channel,
+  _ingested_at
+  -- CHỦ ĐÍCH không SELECT raw_payload: payload chứa email/phone/tên plaintext.
+FROM latest

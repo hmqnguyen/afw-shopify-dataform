@@ -1,0 +1,7 @@
+# afw-shopify-dataform — Dataform core 3.x
+# Đổi defaultProject theo môi trường: allforwood (prod) / allforwood-dev (dev)
+defaultProject: allforwood
+defaultLocation: US
+defaultDataset: afw_shopify_staging
+defaultAssertionDataset: afw_shopify_assertions
+dataformCoreVersion: 3.0.0

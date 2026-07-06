@@ -1,0 +1,46 @@
+config {
+  type: "table",
+  schema: "afw_shopify_staging",
+  description: "Line items tách từ payload abandoned checkouts bằng UNNEST — cùng pattern stg_shopify_order_line_items (dedupe TRƯỚC unnest). Product-signal cho conversion analysis: SKU nào bị bỏ giỏ nhiều, giá trị bao nhiêu, đã recover chưa.",
+  bigquery: {
+    partitionBy: "DATE(checkout_created_at)",
+    clusterBy: ["brand", "sku"]
+  },
+  tags: ["shopify", "staging"]
+}
+
+WITH latest_checkouts AS (
+  SELECT raw_payload, _ingested_at, brand
+  FROM ${ref("raw_shopify_abandoned_checkouts")}
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY JSON_VALUE(raw_payload, '$.id')
+    ORDER BY TIMESTAMP(JSON_VALUE(raw_payload, '$.updatedAt')) DESC, _ingested_at DESC
+  ) = 1
+)
+
+SELECT
+  JSON_VALUE(li, '$.id')                                                 AS line_item_id,
+  JSON_VALUE(c.raw_payload, '$.id')                                      AS checkout_id,
+  TIMESTAMP(JSON_VALUE(c.raw_payload, '$.createdAt'))                    AS checkout_created_at,
+  TIMESTAMP(JSON_VALUE(c.raw_payload, '$.updatedAt'))                    AS checkout_updated_at,
+  JSON_VALUE(c.raw_payload, '$.completedAt') IS NOT NULL                 AS is_recovered,
+  JSON_VALUE(li, '$.sku')                                                AS sku,
+  -- variant/product NULL nếu sản phẩm bị xóa sau khi checkout bắt đầu (docs)
+  JSON_VALUE(li, '$.variant.id')                                         AS variant_id,
+  JSON_VALUE(li, '$.product.id')                                         AS product_id,
+  JSON_VALUE(li, '$.title')                                              AS title,
+  JSON_VALUE(li, '$.variantTitle')                                       AS variant_title,
+  SAFE_CAST(JSON_VALUE(li, '$.quantity') AS INT64)                       AS quantity,
+  SAFE_CAST(JSON_VALUE(li, '$.originalUnitPriceSet.shopMoney.amount') AS NUMERIC)    AS original_unit_price,
+  SAFE_CAST(JSON_VALUE(li, '$.originalTotalPriceSet.shopMoney.amount') AS NUMERIC)   AS original_total_price,
+  SAFE_CAST(JSON_VALUE(li, '$.discountedUnitPriceSet.shopMoney.amount') AS NUMERIC)  AS discounted_unit_price,
+  SAFE_CAST(JSON_VALUE(li, '$.discountedTotalPriceSet.shopMoney.amount') AS NUMERIC) AS discounted_total_price,
+  SAFE_CAST(JSON_VALUE(li, '$.discountedTotalPriceWithCodeDiscount.shopMoney.amount') AS NUMERIC)
+                                                                         AS discounted_total_price_with_code,
+  c.brand,
+  'shopify'                                                              AS channel,
+  c._ingested_at,
+  li                                                                     AS raw_line_item
+FROM latest_checkouts c,
+UNNEST(JSON_QUERY_ARRAY(c.raw_payload, '$.lineItems.edges')) AS edge,
+UNNEST([JSON_QUERY(edge, '$.node')]) AS li

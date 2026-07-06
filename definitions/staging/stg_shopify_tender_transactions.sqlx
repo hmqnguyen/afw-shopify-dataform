@@ -1,0 +1,35 @@
+config {
+  type: "table",
+  schema: "afw_shopify_staging",
+  description: "Payment gateway transactions (payment method + amount thực thu). Transaction test đã bị loại tại đây. Nền tính gateway fee cho P&L Shopify.",
+  bigquery: {
+    partitionBy: "DATE(processed_at)",
+    clusterBy: ["brand", "order_id"]
+  },
+  tags: ["shopify", "staging"]
+}
+
+WITH latest AS (
+  -- TenderTransaction immutable — dedupe chỉ để loại trùng do lookback overlap.
+  SELECT raw_payload, _ingested_at, brand
+  FROM ${ref("raw_shopify_tender_transactions")}
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY JSON_VALUE(raw_payload, '$.id')
+    ORDER BY _ingested_at DESC
+  ) = 1
+)
+
+SELECT
+  JSON_VALUE(raw_payload, '$.id')                                        AS transaction_id,
+  JSON_VALUE(raw_payload, '$.order.id')                                  AS order_id,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.amount.amount') AS NUMERIC)       AS amount,
+  JSON_VALUE(raw_payload, '$.amount.currencyCode')                       AS currency_code,
+  JSON_VALUE(raw_payload, '$.paymentMethod')                             AS payment_method,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.processedAt'))                    AS processed_at,
+  JSON_VALUE(raw_payload, '$.remoteReference')                           AS remote_reference,
+  brand,
+  'shopify'                                                              AS channel,
+  _ingested_at,
+  raw_payload
+FROM latest
+WHERE COALESCE(SAFE_CAST(JSON_VALUE(raw_payload, '$.test') AS BOOL), FALSE) = FALSE

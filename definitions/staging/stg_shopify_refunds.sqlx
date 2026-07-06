@@ -1,0 +1,59 @@
+config {
+  type: "table",
+  schema: "afw_shopify_staging",
+  description: "Refunds + cancellations tách từ order payload. 1 row = 1 refund HOẶC 1 cancellation (refund_type phân biệt). Cancellation không có total_refunded_amount — impact join lấy order_total_price ở đây.",
+  bigquery: {
+    partitionBy: "DATE(event_at)",
+    clusterBy: ["brand", "order_id"]
+  },
+  tags: ["shopify", "staging"]
+}
+
+WITH latest_orders AS (
+  SELECT raw_payload, _ingested_at, brand
+  FROM ${ref("raw_shopify_refunds")}
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY JSON_VALUE(raw_payload, '$.id')
+    ORDER BY TIMESTAMP(JSON_VALUE(raw_payload, '$.updatedAt')) DESC, _ingested_at DESC
+  ) = 1
+),
+
+refund_rows AS (
+  SELECT
+    JSON_VALUE(r, '$.id')                                                AS refund_id,
+    JSON_VALUE(o.raw_payload, '$.id')                                    AS order_id,
+    JSON_VALUE(o.raw_payload, '$.name')                                  AS order_name,
+    'refund'                                                             AS refund_type,
+    TIMESTAMP(JSON_VALUE(r, '$.createdAt'))                              AS event_at,
+    JSON_VALUE(r, '$.note')                                              AS note,
+    SAFE_CAST(JSON_VALUE(r, '$.totalRefundedSet.shopMoney.amount') AS NUMERIC) AS total_refunded_amount,
+    CAST(NULL AS STRING)                                                 AS cancel_reason,
+    SAFE_CAST(JSON_VALUE(o.raw_payload, '$.currentTotalPriceSet.shopMoney.amount') AS NUMERIC) AS order_total_price,
+    r                                                                    AS raw_refund,  -- gồm refundLineItems (SKU-level, restockType)
+    o.brand,
+    o._ingested_at
+  FROM latest_orders o,
+  UNNEST(JSON_QUERY_ARRAY(o.raw_payload, '$.refunds')) AS r
+),
+
+cancellation_rows AS (
+  SELECT
+    CAST(NULL AS STRING)                                                 AS refund_id,
+    JSON_VALUE(raw_payload, '$.id')                                      AS order_id,
+    JSON_VALUE(raw_payload, '$.name')                                    AS order_name,
+    'cancellation'                                                       AS refund_type,
+    TIMESTAMP(JSON_VALUE(raw_payload, '$.cancelledAt'))                  AS event_at,
+    CAST(NULL AS STRING)                                                 AS note,
+    CAST(NULL AS NUMERIC)                                                AS total_refunded_amount,
+    JSON_VALUE(raw_payload, '$.cancelReason')                            AS cancel_reason,
+    SAFE_CAST(JSON_VALUE(raw_payload, '$.currentTotalPriceSet.shopMoney.amount') AS NUMERIC) AS order_total_price,
+    raw_payload                                                          AS raw_refund,
+    brand,
+    _ingested_at
+  FROM latest_orders
+  WHERE JSON_VALUE(raw_payload, '$.cancelledAt') IS NOT NULL
+)
+
+SELECT *, 'shopify' AS channel FROM refund_rows
+UNION ALL
+SELECT *, 'shopify' AS channel FROM cancellation_rows

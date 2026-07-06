@@ -1,0 +1,48 @@
+config {
+  type: "table",
+  schema: "afw_shopify_staging",
+  description: "Line items tách từ payload orders bằng UNNEST (1 row = 1 line item của phiên bản order mới nhất). Bảng raw line items KHÔNG tồn tại — tách tại đây theo quyết định raw tối giản. LƯU Ý FACT LAYER: discount có thể ở cấp ORDER (order.currentTotalDiscountsSet) mà KHÔNG phân bổ xuống line (line.totalDiscount=0) — vd order dùng discount code. Khi tính SKU P&L phải phân bổ order-level discount xuống từng line theo tỷ trọng giá trị, nếu không doanh thu SKU bị tính dư.",
+  bigquery: {
+    partitionBy: "DATE(order_created_at)",
+    clusterBy: ["brand", "sku"]
+  },
+  tags: ["shopify", "staging"]
+}
+
+WITH latest_orders AS (
+  -- Dedupe TRƯỚC khi unnest: chỉ tách line items từ phiên bản order mới nhất,
+  -- tự động tránh trộn line items cũ với header mới khi order bị edit.
+  SELECT raw_payload, _ingested_at, brand
+  FROM ${ref("raw_shopify_orders")}
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY JSON_VALUE(raw_payload, '$.id')
+    ORDER BY TIMESTAMP(JSON_VALUE(raw_payload, '$.updatedAt')) DESC, _ingested_at DESC
+  ) = 1
+)
+
+SELECT
+  JSON_VALUE(li, '$.id')                                                 AS line_item_id,
+  JSON_VALUE(o.raw_payload, '$.id')                                      AS order_id,
+  TIMESTAMP(JSON_VALUE(o.raw_payload, '$.createdAt'))                    AS order_created_at,
+  TIMESTAMP(JSON_VALUE(o.raw_payload, '$.updatedAt'))                    AS order_updated_at,
+  JSON_VALUE(li, '$.sku')                                                AS sku,
+  JSON_VALUE(li, '$.variant.id')                                         AS variant_id,
+  JSON_VALUE(li, '$.variant.product.id')                                 AS product_id,
+  JSON_VALUE(li, '$.title')                                              AS title,
+  -- variantTitle (snapshot lúc đặt) bền vững hơn variant.title (NULL nếu variant
+  -- bị xóa sau). Với nội thất đây là finish + size (vd "Mahogany / Queen").
+  COALESCE(JSON_VALUE(li, '$.variantTitle'), JSON_VALUE(li, '$.variant.title')) AS variant_title,
+  JSON_VALUE(li, '$.name')                                               AS item_full_name,
+  SAFE_CAST(JSON_VALUE(li, '$.quantity') AS INT64)                       AS quantity,
+  SAFE_CAST(JSON_VALUE(li, '$.currentQuantity') AS INT64)                AS current_quantity,
+  SAFE_CAST(JSON_VALUE(li, '$.originalUnitPriceSet.shopMoney.amount') AS NUMERIC)    AS original_unit_price,
+  SAFE_CAST(JSON_VALUE(li, '$.discountedUnitPriceSet.shopMoney.amount') AS NUMERIC)  AS discounted_unit_price,
+  SAFE_CAST(JSON_VALUE(li, '$.totalDiscountSet.shopMoney.amount') AS NUMERIC)        AS total_discount,
+  o.brand,
+  'shopify'                                                              AS channel,
+  o._ingested_at,
+  li                                                                     AS raw_line_item
+FROM latest_orders o,
+UNNEST(JSON_QUERY_ARRAY(o.raw_payload, '$.lineItems.edges')) AS edge,
+UNNEST([JSON_QUERY(edge, '$.node')]) AS li
+WHERE COALESCE(SAFE_CAST(JSON_VALUE(o.raw_payload, '$.test') AS BOOL), FALSE) = FALSE

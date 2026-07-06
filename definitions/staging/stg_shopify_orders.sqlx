@@ -1,0 +1,64 @@
+config {
+  type: "table",
+  schema: "afw_shopify_staging",
+  description: "Order header parse từ raw payload + dedupe (1 row = 1 order, phiên bản mới nhất). Pattern Amazon: parse + dedupe trong 1 file.",
+  bigquery: {
+    partitionBy: "DATE(order_created_at)",
+    clusterBy: ["brand", "order_id"]
+  },
+  tags: ["shopify", "staging"]
+}
+
+WITH latest AS (
+  -- Dedupe: order update nhiều lần -> nhiều row raw. Lấy phiên bản có
+  -- updatedAt mới nhất; tie-break bằng _ingested_at (cùng updatedAt có thể
+  -- xuất hiện ở cả backfill lẫn incremental do lookback overlap).
+  SELECT raw_payload, _ingested_at, brand
+  FROM ${ref("raw_shopify_orders")}
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY JSON_VALUE(raw_payload, '$.id')
+    ORDER BY TIMESTAMP(JSON_VALUE(raw_payload, '$.updatedAt')) DESC, _ingested_at DESC
+  ) = 1
+)
+
+SELECT
+  JSON_VALUE(raw_payload, '$.id')                                        AS order_id,
+  JSON_VALUE(raw_payload, '$.name')                                      AS order_name,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.createdAt'))                      AS order_created_at,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.updatedAt'))                      AS order_updated_at,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.processedAt'))                    AS processed_at,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.cancelledAt'))                    AS cancelled_at,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.closedAt'))                       AS closed_at,
+  JSON_VALUE(raw_payload, '$.displayFinancialStatus')                    AS financial_status,
+  JSON_VALUE(raw_payload, '$.displayFulfillmentStatus')                  AS fulfillment_status,
+  JSON_VALUE(raw_payload, '$.currencyCode')                              AS currency_code,
+  JSON_VALUE(raw_payload, '$.sourceName')                                AS source_name,
+  ARRAY_TO_STRING(
+    ARRAY(SELECT JSON_VALUE(t) FROM UNNEST(JSON_QUERY_ARRAY(raw_payload, '$.tags')) t), ',')
+                                                                         AS tags,
+  JSON_VALUE(raw_payload, '$.note')                                      AS note,
+  ARRAY_TO_STRING(
+    ARRAY(SELECT JSON_VALUE(g) FROM UNNEST(JSON_QUERY_ARRAY(raw_payload, '$.paymentGatewayNames')) g), ',')
+                                                                         AS payment_gateway_names,
+  ARRAY_TO_STRING(
+    ARRAY(SELECT JSON_VALUE(d) FROM UNNEST(JSON_QUERY_ARRAY(raw_payload, '$.discountCodes')) d), ',')
+                                                                         AS discount_codes,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.test') AS BOOL)                   AS is_test,
+  JSON_VALUE(raw_payload, '$.customer.id')                               AS customer_id,
+  JSON_VALUE(raw_payload, '$.shippingAddress.provinceCode')              AS shipping_province_code,
+  JSON_VALUE(raw_payload, '$.shippingAddress.countryCodeV2')             AS shipping_country_code,
+  JSON_VALUE(raw_payload, '$.shippingAddress.city')                      AS shipping_city,
+  JSON_VALUE(raw_payload, '$.shippingAddress.zip')                       AS shipping_zip,
+  JSON_VALUE(raw_payload, '$.shippingLine.title')                        AS shipping_line_title,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.currentTotalPriceSet.shopMoney.amount') AS NUMERIC)      AS total_price_amount,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.currentSubtotalPriceSet.shopMoney.amount') AS NUMERIC)   AS subtotal_price_amount,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.totalShippingPriceSet.shopMoney.amount') AS NUMERIC)     AS total_shipping_amount,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.totalTaxSet.shopMoney.amount') AS NUMERIC)               AS total_tax_amount,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.currentTotalDiscountsSet.shopMoney.amount') AS NUMERIC)  AS total_discounts_amount,
+  brand,
+  'shopify'                                                              AS channel,
+  _ingested_at,
+  raw_payload
+FROM latest
+-- Loại test order ngay từ staging — không để lọt vào master/fact.
+WHERE COALESCE(SAFE_CAST(JSON_VALUE(raw_payload, '$.test') AS BOOL), FALSE) = FALSE

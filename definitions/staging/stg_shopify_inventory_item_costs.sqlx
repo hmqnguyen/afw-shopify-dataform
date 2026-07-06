@@ -1,0 +1,36 @@
+config {
+  type: "table",
+  schema: "afw_shopify_staging",
+  description: "COGS theo Shopify Admin, snapshot mới nhất per SKU. Mục đích: (1) validate vs Airtable COGS — nguồn chính thức, alert khi lệch; (2) fallback cho SKU chưa có COGS trong Airtable. Lưu ý: cost là USD selling-side, không phải production cost VND tại Nhà Máy 5.",
+  bigquery: {
+    clusterBy: ["brand", "sku"]
+  },
+  tags: ["shopify", "staging"]
+}
+
+WITH latest AS (
+  -- Full snapshot mỗi ngày -> lấy bản mới nhất per variant
+  SELECT raw_payload, _ingested_at, brand
+  FROM ${ref("raw_shopify_inventory_item_costs")}
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY JSON_VALUE(raw_payload, '$.id')
+    ORDER BY _ingested_at DESC
+  ) = 1
+)
+
+SELECT
+  JSON_VALUE(raw_payload, '$.id')                                        AS variant_id,
+  JSON_VALUE(raw_payload, '$.sku')                                       AS sku,
+  JSON_VALUE(raw_payload, '$.barcode')                                   AS barcode,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.price') AS NUMERIC)               AS selling_price,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.compareAtPrice') AS NUMERIC)      AS compare_at_price,
+  JSON_VALUE(raw_payload, '$.inventoryItem.id')                          AS inventory_item_id,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.inventoryItem.unitCost.amount') AS NUMERIC) AS unit_cost,
+  JSON_VALUE(raw_payload, '$.inventoryItem.unitCost.currencyCode')       AS cost_currency_code,
+  JSON_VALUE(raw_payload, '$.inventoryItem.countryCodeOfOrigin')         AS country_code_of_origin,
+  JSON_VALUE(raw_payload, '$.inventoryItem.harmonizedSystemCode')        AS harmonized_system_code,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.inventoryItem.tracked') AS BOOL)  AS is_tracked,
+  _ingested_at                                                           AS snapshot_at,
+  brand,
+  'shopify'                                                              AS channel
+FROM latest

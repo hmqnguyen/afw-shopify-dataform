@@ -1,0 +1,46 @@
+config {
+  type: "table",
+  schema: "afw_shopify_staging",
+  description: "Abandoned checkouts (gồm recovered) — header đầy đủ giống chuẩn stg_shopify_orders: giá trị subtotal/discount/duties/tax/total, billing + shipping geo. is_recovered = completedAt IS NOT NULL. PII: chỉ email_hash. Line items tách sang stg_shopify_abandoned_checkout_line_items.",
+  bigquery: {
+    partitionBy: "DATE(checkout_created_at)",
+    clusterBy: ["brand", "is_recovered"]
+  },
+  tags: ["shopify", "staging", "pii-processed"]
+}
+
+WITH latest AS (
+  SELECT raw_payload, _ingested_at, brand
+  FROM ${ref("raw_shopify_abandoned_checkouts")}
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY JSON_VALUE(raw_payload, '$.id')
+    ORDER BY TIMESTAMP(JSON_VALUE(raw_payload, '$.updatedAt')) DESC, _ingested_at DESC
+  ) = 1
+)
+
+SELECT
+  JSON_VALUE(raw_payload, '$.id')                                        AS checkout_id,
+  JSON_VALUE(raw_payload, '$.name')                                      AS checkout_name,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.createdAt'))                      AS checkout_created_at,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.updatedAt'))                      AS checkout_updated_at,
+  TIMESTAMP(JSON_VALUE(raw_payload, '$.completedAt'))                    AS completed_at,
+  JSON_VALUE(raw_payload, '$.completedAt') IS NOT NULL                   AS is_recovered,
+  JSON_VALUE(raw_payload, '$.note')                                      AS note,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.taxesIncluded') AS BOOL)          AS taxes_included,
+  TO_HEX(SHA256(LOWER(TRIM(JSON_VALUE(raw_payload, '$.customer.email'))))) AS email_hash,
+  JSON_VALUE(raw_payload, '$.customer.id')                               AS customer_id,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.subtotalPriceSet.shopMoney.amount') AS NUMERIC)        AS subtotal_price,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.totalLineItemsPriceSet.shopMoney.amount') AS NUMERIC)  AS total_line_items_price,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.totalDiscountSet.shopMoney.amount') AS NUMERIC)        AS total_discount,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.totalDutiesSet.shopMoney.amount') AS NUMERIC)          AS total_duties,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.totalTaxSet.shopMoney.amount') AS NUMERIC)             AS total_tax,
+  SAFE_CAST(JSON_VALUE(raw_payload, '$.totalPriceSet.shopMoney.amount') AS NUMERIC)           AS total_price,
+  JSON_VALUE(raw_payload, '$.totalPriceSet.shopMoney.currencyCode')      AS currency_code,
+  JSON_VALUE(raw_payload, '$.billingAddress.provinceCode')               AS billing_province_code,
+  JSON_VALUE(raw_payload, '$.billingAddress.countryCodeV2')              AS billing_country_code,
+  JSON_VALUE(raw_payload, '$.shippingAddress.provinceCode')              AS shipping_province_code,
+  JSON_VALUE(raw_payload, '$.shippingAddress.countryCodeV2')             AS shipping_country_code,
+  brand,
+  'shopify'                                                              AS channel,
+  _ingested_at
+FROM latest
