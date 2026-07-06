@@ -1,0 +1,26 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "SHOP-06 SKU P&L — fact_sku_pnl_daily kèm tên + cost + margin %. gateway_fee NULL (Shopify không cấp). Discount đã phân bổ từ cấp order.",
+  tags: ["shopify", "mart"]
+}
+
+SELECT
+  f.brand,
+  f.channel,
+  f.order_date        AS date,
+  f.sku,
+  m.variant_title,
+  m.product_id,
+  m.unit_cost,
+  f.units,
+  f.gross_sales,
+  f.discount,
+  f.net_sales,
+  f.refunds,
+  f.cogs,
+  f.gateway_fee,
+  f.net_margin,
+  SAFE_DIVIDE(f.net_margin, NULLIF(f.net_sales, 0)) AS margin_pct
+FROM ${ref("fact_sku_pnl_daily")} f
+LEFT JOIN ${ref("master_shopify_sku")} m USING (brand, sku)

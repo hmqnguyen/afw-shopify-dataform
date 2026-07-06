@@ -1,0 +1,29 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "SHOP-05 Khuyến mãi — hiệu quả từng discount code theo ngày: số đơn, doanh thu, tiền discount, AOV. LƯU Ý: đơn có nhiều code sẽ đếm cho từng code (có thể trùng doanh thu giữa các code).",
+  tags: ["shopify", "mart"]
+}
+
+WITH order_codes AS (
+  SELECT
+    o.brand,
+    DATE(o.order_created_at)     AS date,
+    TRIM(code)                   AS discount_code,
+    o.order_id,
+    o.total_price_amount         AS order_revenue,
+    o.total_discounts_amount     AS order_discount
+  FROM ${ref("stg_shopify_orders")} o,
+    UNNEST(SPLIT(o.discount_codes, ',')) AS code
+  WHERE o.discount_codes != '' AND TRIM(code) != ''
+)
+SELECT
+  brand,
+  date,
+  discount_code,
+  COUNT(DISTINCT order_id)                                          AS orders,
+  SUM(order_revenue)                                               AS revenue,
+  SUM(order_discount)                                              AS discount_amount,
+  SAFE_DIVIDE(SUM(order_revenue), NULLIF(COUNT(DISTINCT order_id), 0)) AS aov
+FROM order_codes
+GROUP BY brand, date, discount_code

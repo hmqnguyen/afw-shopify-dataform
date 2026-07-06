@@ -1,0 +1,20 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "SHOP-02 Hiệu suất bán hàng — doanh thu SKU×ngày kèm tên variant/product (drill product→SKU→variant).",
+  tags: ["shopify", "mart"]
+}
+
+SELECT
+  f.brand,
+  f.channel,
+  f.order_date        AS date,
+  f.sku,
+  m.variant_title,
+  m.product_id,
+  f.units,
+  f.gross_sales,
+  f.discount,
+  f.net_sales
+FROM ${ref("fact_sku_pnl_daily")} f
+LEFT JOIN ${ref("master_shopify_sku")} m USING (brand, sku)

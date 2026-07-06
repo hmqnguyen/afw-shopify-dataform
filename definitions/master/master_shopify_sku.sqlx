@@ -1,0 +1,56 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "Master: 1 dòng/SKU — cost (unit_cost Shopify, Airtable override sau), giá bán, tên variant/product, tồn available hiện tại (sum theo location).",
+  tags: ["shopify", "master"],
+  assertions: { uniqueKey: ["sku"] }
+}
+
+WITH cost_latest AS (
+  SELECT *
+  FROM ${ref("stg_shopify_inventory_item_costs")}
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY brand, sku ORDER BY snapshot_at DESC) = 1
+),
+names AS (
+  -- variant_title + product_id lấy từ line item gần nhất theo SKU
+  SELECT brand, sku, product_id, variant_title
+  FROM ${ref("stg_shopify_order_line_items")}
+  WHERE sku IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY brand, sku ORDER BY order_updated_at DESC) = 1
+),
+inv AS (
+  SELECT brand, sku,
+    SUM(qty_available) AS qty_available,
+    SUM(qty_on_hand)   AS qty_on_hand,
+    SUM(qty_committed) AS qty_committed,
+    SUM(qty_incoming)  AS qty_incoming
+  FROM ${ref("stg_shopify_inventory_levels")}
+  WHERE is_latest
+  GROUP BY brand, sku
+),
+sku_universe AS (
+  SELECT DISTINCT brand, sku FROM cost_latest WHERE sku IS NOT NULL
+  UNION DISTINCT
+  SELECT DISTINCT brand, sku FROM inv WHERE sku IS NOT NULL
+)
+
+SELECT
+  u.brand,
+  'shopify'                       AS channel,
+  u.sku,
+  c.variant_id,
+  n.product_id,
+  n.variant_title,
+  c.unit_cost,
+  'shopify'                       AS cost_source,
+  c.selling_price,
+  c.compare_at_price,
+  c.is_tracked,
+  COALESCE(i.qty_available, 0)    AS qty_available,
+  COALESCE(i.qty_on_hand, 0)      AS qty_on_hand,
+  COALESCE(i.qty_committed, 0)    AS qty_committed,
+  COALESCE(i.qty_incoming, 0)     AS qty_incoming
+FROM sku_universe u
+LEFT JOIN cost_latest c USING (brand, sku)
+LEFT JOIN names       n USING (brand, sku)
+LEFT JOIN inv         i USING (brand, sku)

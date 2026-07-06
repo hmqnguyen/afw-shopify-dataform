@@ -1,0 +1,33 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "SHOP-04 Khách hàng 360 — 1 dòng/khách: LTV, số đơn, phân khúc, geo, đơn gần nhất. Sạch PII (email_hash). Kênh duy nhất có full customer data.",
+  tags: ["shopify", "mart"]
+}
+
+WITH ord AS (
+  SELECT brand, customer_id,
+    COUNT(*)                 AS orders_in_window,
+    SUM(total_price)         AS revenue_in_window,
+    MAX(order_created_at)    AS last_order_at
+  FROM ${ref("master_shopify_order")}
+  WHERE customer_id IS NOT NULL
+  GROUP BY brand, customer_id
+)
+SELECT
+  c.brand,
+  c.channel,
+  c.customer_id,
+  c.email_hash,
+  c.number_of_orders,
+  c.ltv,
+  c.is_repeat,
+  c.ltv_bucket,
+  c.province_code,
+  c.country_code,
+  c.customer_created_at,
+  o.last_order_at,
+  o.orders_in_window,
+  o.revenue_in_window
+FROM ${ref("master_shopify_customer")} c
+LEFT JOIN ord o USING (brand, customer_id)

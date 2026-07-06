@@ -1,0 +1,23 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "Master: tồn kho hiện tại 1 dòng/SKU×location (snapshot is_latest). qty_available = warehouseATS phía Shopify (Lecangs), KHÔNG phải channelATS.",
+  tags: ["shopify", "master"],
+  assertions: { uniqueKey: ["sku", "location_id"] }
+}
+
+SELECT
+  brand,
+  channel,
+  sku,
+  variant_id,
+  inventory_item_id,
+  location_id,
+  location_name,
+  qty_available,
+  qty_on_hand,
+  qty_committed,
+  qty_incoming,
+  snapshot_at
+FROM ${ref("stg_shopify_inventory_levels")}
+WHERE is_latest

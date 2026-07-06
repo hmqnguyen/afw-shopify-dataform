@@ -1,0 +1,33 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "Tồn kho theo SKU theo ngày — snapshot MỚI NHẤT trong ngày mỗi location, sum theo SKU. Từ time-series stg_shopify_inventory_levels (poll 30 phút).",
+  tags: ["shopify", "fact"],
+  assertions: { uniqueKey: ["brand", "channel", "sku", "snapshot_date"] }
+}
+
+WITH ranked AS (
+  SELECT
+    brand, channel, sku, location_id,
+    qty_available, qty_on_hand, qty_committed, qty_incoming,
+    DATE(snapshot_at) AS snapshot_date,
+    ROW_NUMBER() OVER (
+      PARTITION BY brand, sku, location_id, DATE(snapshot_at)
+      ORDER BY snapshot_at DESC
+    ) AS rn
+  FROM ${ref("stg_shopify_inventory_levels")}
+)
+
+SELECT
+  brand,
+  channel,
+  sku,
+  snapshot_date,
+  SUM(qty_available)          AS qty_available,
+  SUM(qty_on_hand)            AS qty_on_hand,
+  SUM(qty_committed)          AS qty_committed,
+  SUM(qty_incoming)           AS qty_incoming,
+  COUNT(DISTINCT location_id) AS location_count
+FROM ranked
+WHERE rn = 1
+GROUP BY brand, channel, sku, snapshot_date

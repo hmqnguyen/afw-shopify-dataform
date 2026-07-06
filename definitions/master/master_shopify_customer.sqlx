@@ -1,0 +1,29 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "Master: 1 dòng/khách Shopify (staging đã dedupe), thêm phân khúc + bucket LTV. PII chỉ ở email_hash.",
+  tags: ["shopify", "master"],
+  assertions: { uniqueKey: ["customer_id"] }
+}
+
+SELECT
+  brand,
+  channel,
+  customer_id,
+  email_hash,
+  number_of_orders,
+  amount_spent                                          AS ltv,
+  (number_of_orders > 1)                                AS is_repeat,
+  CASE
+    WHEN amount_spent >= 1000 THEN 'high'
+    WHEN amount_spent >= 300  THEN 'mid'
+    WHEN amount_spent > 0     THEN 'low'
+    ELSE 'none'
+  END                                                   AS ltv_bucket,
+  province_code,
+  country_code,
+  state,
+  verified_email,
+  customer_created_at,
+  customer_updated_at
+FROM ${ref("stg_shopify_customers")}

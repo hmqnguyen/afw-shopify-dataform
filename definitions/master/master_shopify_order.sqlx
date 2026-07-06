@@ -1,0 +1,45 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "Master: 1 dòng/đơn Shopify (staging đã dedupe), gộp refund + cờ trạng thái.",
+  tags: ["shopify", "master"],
+  assertions: { uniqueKey: ["order_id"] }
+}
+
+WITH refund_agg AS (
+  SELECT
+    order_id,
+    SUM(IF(refund_type = 'refund', total_refunded_amount, 0)) AS refunded_amount,
+    LOGICAL_OR(refund_type = 'cancellation')                  AS has_cancellation
+  FROM ${ref("stg_shopify_refunds")}
+  GROUP BY order_id
+)
+
+SELECT
+  o.brand,
+  o.channel,
+  o.order_id,
+  o.order_name,
+  DATE(o.order_created_at)                             AS order_date,
+  o.order_created_at,
+  o.order_updated_at,
+  o.processed_at,
+  o.cancelled_at,
+  o.financial_status,
+  o.fulfillment_status,
+  o.customer_id,
+  o.source_name,
+  o.discount_codes,
+  o.shipping_province_code,
+  o.shipping_city,
+  o.shipping_zip,
+  o.subtotal_price_amount                              AS gross_sales,
+  o.total_discounts_amount                             AS total_discounts,
+  o.total_shipping_amount                              AS total_shipping,
+  o.total_tax_amount                                   AS total_tax,
+  o.total_price_amount                                 AS total_price,
+  COALESCE(r.refunded_amount, 0)                       AS refunded_amount,
+  (o.cancelled_at IS NOT NULL) OR COALESCE(r.has_cancellation, FALSE) AS is_cancelled,
+  (o.discount_codes != '')                             AS has_discount
+FROM ${ref("stg_shopify_orders")} o
+LEFT JOIN refund_agg r USING (order_id)

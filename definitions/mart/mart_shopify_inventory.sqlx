@@ -1,0 +1,39 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "SHOP-07 Tồn kho & Fulfillment — sức khỏe tồn kho theo SKU + days-of-supply (velocity 30 ngày). qty_available = warehouseATS (Lecangs). Cột đối soát Lecangs để NULL — cross-source (repo Lecangs), bổ sung sau.",
+  tags: ["shopify", "mart"]
+}
+
+WITH velocity AS (
+  SELECT brand, sku,
+    SAFE_DIVIDE(SUM(units), NULLIF(COUNT(DISTINCT order_date), 0)) AS avg_daily_units
+  FROM ${ref("fact_sku_pnl_daily")}
+  WHERE order_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+  GROUP BY brand, sku
+),
+inv AS (
+  SELECT brand, channel, sku,
+    SUM(qty_available) AS qty_available,
+    SUM(qty_on_hand)   AS qty_on_hand,
+    SUM(qty_committed) AS qty_committed,
+    SUM(qty_incoming)  AS qty_incoming
+  FROM ${ref("master_shopify_inventory")}
+  GROUP BY brand, channel, sku
+)
+SELECT
+  i.brand,
+  i.channel,
+  i.sku,
+  m.variant_title,
+  i.qty_available,
+  i.qty_on_hand,
+  i.qty_committed,
+  i.qty_incoming,
+  v.avg_daily_units,
+  SAFE_DIVIDE(i.qty_available, NULLIF(v.avg_daily_units, 0)) AS days_of_supply,
+  CAST(NULL AS INT64)   AS lecangs_qty,
+  CAST(NULL AS INT64)   AS variance_vs_lecangs
+FROM inv i
+LEFT JOIN velocity v USING (brand, sku)
+LEFT JOIN ${ref("master_shopify_sku")} m USING (brand, sku)

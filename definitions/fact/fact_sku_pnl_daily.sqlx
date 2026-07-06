@@ -1,0 +1,77 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "P&L theo SKU theo ngày (channel='shopify'). PHÂN BỔ order-level discount + refund xuống SKU theo tỷ trọng doanh thu gộp — vì discount Shopify thường ở cấp order (currentTotalDiscountsSet), line.totalDiscount = 0. gateway_fee = NULL (Shopify GraphQL không cấp). Bảng riêng Shopify; union cross-channel ở tầng BI sau.",
+  tags: ["shopify", "fact"],
+  assertions: { uniqueKey: ["brand", "channel", "sku", "order_date"] }
+}
+
+-- 1. Doanh thu gộp từng dòng
+WITH lines AS (
+  SELECT
+    li.brand,
+    li.channel,
+    li.order_id,
+    li.sku,
+    DATE(li.order_created_at)                                              AS order_date,
+    li.quantity,
+    li.quantity * COALESCE(li.original_unit_price, li.discounted_unit_price, 0) AS line_gross
+  FROM ${ref("stg_shopify_order_line_items")} li
+  WHERE li.sku IS NOT NULL
+),
+
+-- 2. Tổng gross mỗi đơn (mẫu số chia tỷ trọng)
+order_gross AS (
+  SELECT order_id, SUM(line_gross) AS order_gross
+  FROM lines
+  GROUP BY order_id
+),
+
+-- 3. Discount (cấp order) + refund (gộp theo order)
+order_adj AS (
+  SELECT
+    o.order_id,
+    o.total_discounts_amount            AS order_discount,
+    COALESCE(rf.refunded, 0)            AS order_refund
+  FROM ${ref("stg_shopify_orders")} o
+  LEFT JOIN (
+    SELECT order_id, SUM(IF(refund_type = 'refund', total_refunded_amount, 0)) AS refunded
+    FROM ${ref("stg_shopify_refunds")}
+    GROUP BY order_id
+  ) rf USING (order_id)
+),
+
+-- 4. Phân bổ discount + refund xuống dòng theo tỷ trọng gross
+line_pnl AS (
+  SELECT
+    l.brand,
+    l.channel,
+    l.sku,
+    l.order_date,
+    l.quantity,
+    l.line_gross,
+    a.order_discount * COALESCE(SAFE_DIVIDE(l.line_gross, NULLIF(g.order_gross, 0)), 0) AS discount_alloc,
+    a.order_refund   * COALESCE(SAFE_DIVIDE(l.line_gross, NULLIF(g.order_gross, 0)), 0) AS refund_alloc
+  FROM lines l
+  JOIN order_gross g USING (order_id)
+  JOIN order_adj   a USING (order_id)
+)
+
+-- 5. Gộp theo SKU×ngày + join cost
+SELECT
+  p.brand,
+  p.channel,
+  p.sku,
+  p.order_date,
+  SUM(p.quantity)                                                          AS units,
+  SUM(p.line_gross)                                                        AS gross_sales,
+  SUM(p.discount_alloc)                                                    AS discount,
+  SUM(p.line_gross - p.discount_alloc)                                     AS net_sales,
+  SUM(p.refund_alloc)                                                      AS refunds,
+  SUM(p.quantity * COALESCE(m.unit_cost, 0))                              AS cogs,
+  CAST(NULL AS NUMERIC)                                                    AS gateway_fee,
+  SUM(p.line_gross - p.discount_alloc - p.refund_alloc
+      - p.quantity * COALESCE(m.unit_cost, 0))                            AS net_margin
+FROM line_pnl p
+LEFT JOIN ${ref("master_shopify_sku")} m USING (brand, sku)
+GROUP BY p.brand, p.channel, p.sku, p.order_date

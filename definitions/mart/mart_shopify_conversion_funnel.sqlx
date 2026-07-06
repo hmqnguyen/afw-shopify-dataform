@@ -1,0 +1,17 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "SHOP-03 Phễu chuyển đổi — giỏ bỏ quên theo ngày: số giỏ, recover, tỷ lệ recover, doanh thu treo, giá trị đã recover.",
+  tags: ["shopify", "mart"]
+}
+
+SELECT
+  brand,
+  checkout_date                                              AS date,
+  COUNT(*)                                                   AS checkouts_started,
+  COUNTIF(is_recovered)                                      AS checkouts_recovered,
+  SAFE_DIVIDE(COUNTIF(is_recovered), NULLIF(COUNT(*), 0))    AS recovery_rate,
+  SUM(value_at_risk)                                         AS revenue_at_risk,
+  SUM(IF(is_recovered, checkout_value, 0))                   AS recovered_value
+FROM ${ref("fact_abandoned_checkout")}
+GROUP BY brand, checkout_date

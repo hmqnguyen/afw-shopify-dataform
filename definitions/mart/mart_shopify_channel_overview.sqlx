@@ -1,0 +1,38 @@
+config {
+  type: "table",
+  schema: "afw_shopify_fact",
+  description: "SHOP-01 Tổng quan kênh — KPI theo brand theo ngày: net revenue, đơn, units, AOV, tỷ lệ chuyển đổi (đơn/(đơn+giỏ bỏ)), tỷ lệ hoàn/hủy.",
+  tags: ["shopify", "mart"]
+}
+
+WITH pnl AS (
+  SELECT brand, order_date AS date,
+    SUM(net_sales - refunds) AS net_revenue,
+    SUM(units)               AS units
+  FROM ${ref("fact_sku_pnl_daily")}
+  GROUP BY brand, order_date
+),
+ord AS (
+  SELECT brand, order_date AS date,
+    COUNT(*)                                        AS orders,
+    COUNTIF(refunded_amount > 0 OR is_cancelled)    AS refund_orders
+  FROM ${ref("master_shopify_order")}
+  GROUP BY brand, order_date
+),
+funnel AS (
+  SELECT brand, checkout_date AS date, COUNT(*) AS checkouts
+  FROM ${ref("fact_abandoned_checkout")}
+  GROUP BY brand, checkout_date
+)
+SELECT
+  o.brand,
+  o.date,
+  COALESCE(p.net_revenue, 0)                                     AS net_revenue,
+  o.orders,
+  COALESCE(p.units, 0)                                           AS units,
+  SAFE_DIVIDE(p.net_revenue, NULLIF(o.orders, 0))               AS aov,
+  SAFE_DIVIDE(o.orders, NULLIF(o.orders + f.checkouts, 0))      AS conversion_rate,
+  SAFE_DIVIDE(o.refund_orders, NULLIF(o.orders, 0))            AS refund_rate
+FROM ord o
+LEFT JOIN pnl    p USING (brand, date)
+LEFT JOIN funnel f USING (brand, date)

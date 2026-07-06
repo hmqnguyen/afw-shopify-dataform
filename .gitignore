@@ -1,0 +1,12 @@
+# Dataform — TUYỆT ĐỐI không push credential (chứa key service account BigQuery)
+.df-credentials.json
+
+# Dataform build cache / compiled output
+.dataform/
+node_modules/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
