@@ -1,9 +1,16 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_master",
   description: "Master: 1 dòng/khách Shopify (staging đã dedupe), thêm phân khúc + bucket LTV. PII chỉ ở email_hash.",
   tags: ["shopify", "master"],
-  assertions: { uniqueKey: ["customer_id"] }
+  assertions: {
+    uniqueKey: ["customer_id"],
+    nonNull: ["customer_id"],
+    rowConditions: [
+      "ltv IS NULL OR ltv >= 0",
+      "ltv_bucket IS NOT NULL"
+    ]
+  }
 }
 
 SELECT

@@ -6,7 +6,17 @@ config {
     partitionBy: "DATE(order_created_at)",
     clusterBy: ["brand", "order_id"]
   },
-  tags: ["shopify", "staging"]
+  tags: ["shopify", "staging"],
+  assertions: {
+    nonNull: ["order_id", "order_created_at", "brand", "channel"],
+    rowConditions: [
+      "order_id LIKE 'gid://shopify/Order/%'",
+      "channel = 'shopify'",
+      "total_price_amount IS NULL OR total_price_amount >= 0",
+      "subtotal_price_amount IS NULL OR subtotal_price_amount >= 0",
+      "total_discounts_amount IS NULL OR total_discounts_amount >= 0"
+    ]
+  }
 }
 
 WITH latest AS (
@@ -60,5 +70,6 @@ SELECT
   _ingested_at,
   raw_payload
 FROM latest
--- Loại test order ngay từ staging — không để lọt vào master/fact.
-WHERE COALESCE(SAFE_CAST(JSON_VALUE(raw_payload, '$.test') AS BOOL), FALSE) = FALSE
+-- KHÔNG lọc test order ở staging. Trạng thái là CỘT DỮ LIỆU (is_test), không phải
+-- bộ lọc. Quy tắc kinh doanh "loại đơn test" áp ở fact/mart. Lọc ở đây sẽ khiến
+-- cột is_test luôn = FALSE (vô nghĩa) và mất khả năng phân tích/đối soát đơn test.

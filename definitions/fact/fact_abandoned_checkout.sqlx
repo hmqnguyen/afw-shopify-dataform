@@ -1,7 +1,7 @@
 config {
   type: "table",
   schema: "afw_shopify_fact",
-  description: "Giỏ hàng bỏ quên — 1 dòng/checkout, cờ recover + giá trị treo + thời gian recover. Nền phễu chuyển đổi (lợi thế riêng Shopify).",
+  description: "Giỏ bỏ quên — 1 dòng/checkout, cờ recover + giá trị treo + thời gian recover. Đọc từ master (invariant: fact KHÔNG đọc staging/raw).",
   tags: ["shopify", "fact"],
   assertions: { uniqueKey: ["checkout_id"] }
 }
@@ -11,14 +11,14 @@ SELECT
   channel,
   checkout_id,
   checkout_name,
-  DATE(checkout_created_at)                                       AS checkout_date,
+  checkout_date,
   checkout_created_at,
   completed_at,
   is_recovered,
   customer_id,
   email_hash,
   shipping_province_code,
-  total_price                                                     AS checkout_value,
-  IF(is_recovered, 0, total_price)                                AS value_at_risk,
+  total_price                                       AS checkout_value,
+  IF(is_recovered, 0, total_price)                  AS value_at_risk,
   IF(is_recovered, TIMESTAMP_DIFF(completed_at, checkout_created_at, HOUR), NULL) AS hours_to_recover
-FROM ${ref("stg_shopify_abandoned_checkouts")}
+FROM ${ref("master_shopify_abandoned_checkout")}

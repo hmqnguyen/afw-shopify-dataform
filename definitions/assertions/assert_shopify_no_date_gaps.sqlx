@@ -1,0 +1,25 @@
+config {
+  type: "assertion",
+  tags: ["shopify", "assertion-ops"],
+  description: "Lỗ hổng ngày trong chuỗi snapshot tồn kho (master_shopify_inventory_snapshot): thiếu ngày giữa min–max ⇒ poll sync thủng, mart tính sai trên data thủng. Tag 'assertion-ops' (chạy khi có sync định kỳ). Chỉ áp cho chuỗi liên tục theo ngày — KHÔNG áp cho bảng sự kiện (orders có ngày không phát sinh là bình thường)."
+}
+
+-- Trả về CÁC NGÀY THIẾU. Rỗng = pass.
+WITH bounds AS (
+  SELECT MIN(DATE(snapshot_at)) AS min_d, MAX(DATE(snapshot_at)) AS max_d
+  FROM ${ref("master_shopify_inventory_snapshot")}
+),
+expected AS (
+  SELECT d
+  FROM bounds, UNNEST(GENERATE_DATE_ARRAY(min_d, max_d)) AS d
+  WHERE min_d IS NOT NULL
+),
+actual AS (
+  SELECT DISTINCT DATE(snapshot_at) AS d
+  FROM ${ref("master_shopify_inventory_snapshot")}
+)
+SELECT e.d AS missing_date
+FROM expected e
+LEFT JOIN actual a USING (d)
+WHERE a.d IS NULL
+ORDER BY e.d

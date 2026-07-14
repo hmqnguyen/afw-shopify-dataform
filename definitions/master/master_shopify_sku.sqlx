@@ -1,9 +1,17 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_master",
   description: "Master: 1 dòng/SKU — cost (unit_cost Shopify, Airtable override sau), giá bán, tên variant/product, tồn available hiện tại (sum theo location).",
   tags: ["shopify", "master"],
-  assertions: { uniqueKey: ["sku"] }
+  assertions: {
+    uniqueKey: ["sku"],
+    nonNull: ["sku"],
+    rowConditions: [
+      "unit_cost IS NULL OR unit_cost >= 0",
+      "selling_price IS NULL OR selling_price >= 0",
+      "cost_source IS NOT NULL"
+    ]
+  }
 }
 
 WITH cost_latest AS (

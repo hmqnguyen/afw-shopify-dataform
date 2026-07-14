@@ -1,0 +1,25 @@
+config {
+  type: "assertion",
+  tags: ["shopify", "assertion"],
+  description: "Bảo toàn phân bổ discount: với mỗi đơn có gross > 0, tổng discount_alloc xuống SKU phải = order-level discount (sai số < 1 cent). VI PHẠM = phân bổ discount bị rò/thừa → doanh thu & P&L theo SKU sai. Đây là quy tắc thiết kế cốt lõi của master_shopify_order_line."
+}
+
+-- Trả về CÁC ĐƠN VI PHẠM. Rỗng = pass.
+WITH per_order AS (
+  SELECT
+    ol.order_id,
+    ANY_VALUE(o.total_discounts) AS order_discount,
+    SUM(ol.discount_alloc)       AS alloc_discount,
+    SUM(ol.line_gross)           AS order_gross
+  FROM ${ref("master_shopify_order_line")} ol
+  JOIN ${ref("master_shopify_order")} o USING (order_id)
+  GROUP BY ol.order_id
+)
+SELECT
+  order_id,
+  order_discount,
+  alloc_discount,
+  ROUND(COALESCE(order_discount, 0) - COALESCE(alloc_discount, 0), 4) AS gap
+FROM per_order
+WHERE order_gross > 0
+  AND ABS(COALESCE(order_discount, 0) - COALESCE(alloc_discount, 0)) > 0.01

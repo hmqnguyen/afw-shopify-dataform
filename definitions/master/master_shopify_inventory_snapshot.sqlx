@@ -1,0 +1,33 @@
+config {
+  type: "table",
+  schema: "afw_shopify_master",
+  description: "Master: TOÀN BỘ chuỗi snapshot tồn kho (time-series) 1 dòng/SKU×location×snapshot. Khác master_shopify_inventory (chỉ current-state is_latest). Nguồn cho fact_inventory_daily (giữ invariant: fact chỉ đọc master).",
+  tags: ["shopify", "master"],
+  assertions: {
+    uniqueKey: ["sku", "location_id", "snapshot_at"],
+    nonNull: ["location_id", "variant_id", "snapshot_at", "brand"],
+    rowConditions: [
+      "channel = 'shopify'"
+    ]
+  }
+}
+
+SELECT
+  brand,
+  channel,
+  sku,
+  variant_id,
+  inventory_item_id,
+  location_id,
+  location_name,
+  qty_available,
+  qty_on_hand,
+  qty_committed,
+  qty_incoming,
+  snapshot_at,
+  is_latest
+FROM ${ref("stg_shopify_inventory_levels")}
+-- Phòng trùng nếu 2 lần ingest cùng chạm 1 snapshot_at
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY brand, sku, location_id, snapshot_at ORDER BY snapshot_at DESC
+) = 1

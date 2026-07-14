@@ -1,6 +1,6 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_mart",
   description: "SHOP-04 Khách hàng 360 — 1 dòng/khách: LTV, số đơn, phân khúc, geo, đơn gần nhất. Sạch PII (email_hash). Kênh duy nhất có full customer data.",
   tags: ["shopify", "mart"]
 }
@@ -12,6 +12,7 @@ WITH ord AS (
     MAX(order_created_at)    AS last_order_at
   FROM ${ref("master_shopify_order")}
   WHERE customer_id IS NOT NULL
+    AND NOT is_test          -- quy tắc kinh doanh áp ở mart, không ở staging
   GROUP BY brand, customer_id
 )
 SELECT

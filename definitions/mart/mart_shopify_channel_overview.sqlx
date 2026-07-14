@@ -1,6 +1,6 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_mart",
   description: "SHOP-01 Tổng quan kênh — KPI theo brand theo ngày: net revenue, đơn, units, AOV, tỷ lệ chuyển đổi (đơn/(đơn+giỏ bỏ)), tỷ lệ hoàn/hủy.",
   tags: ["shopify", "mart"]
 }
@@ -17,6 +17,7 @@ ord AS (
     COUNT(*)                                        AS orders,
     COUNTIF(refunded_amount > 0 OR is_cancelled)    AS refund_orders
   FROM ${ref("master_shopify_order")}
+  WHERE NOT is_test          -- quy tắc kinh doanh áp ở mart, không ở staging
   GROUP BY brand, order_date
 ),
 funnel AS (

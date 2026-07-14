@@ -1,0 +1,13 @@
+config {
+  type: "assertion",
+  tags: ["shopify", "assertion"],
+  description: "Referential: mọi order_line phải trỏ tới order tồn tại trong master_shopify_order. VI PHẠM = line mồ côi (mất order ở master) → fact SKU sai context đơn. Bắt vi phạm invariant layering giống Amazon."
+}
+
+-- Trả về CÁC DÒNG VI PHẠM. Rỗng = pass.
+SELECT
+  ol.line_item_id,
+  ol.order_id
+FROM ${ref("master_shopify_order_line")} ol
+LEFT JOIN ${ref("master_shopify_order")} o USING (order_id)
+WHERE o.order_id IS NULL

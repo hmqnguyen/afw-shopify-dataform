@@ -5,7 +5,15 @@ config {
   bigquery: {
     clusterBy: ["brand", "sku"]
   },
-  tags: ["shopify", "staging"]
+  tags: ["shopify", "staging"],
+  assertions: {
+    nonNull: ["variant_id", "brand", "channel"],
+    rowConditions: [
+      "channel = 'shopify'",
+      "unit_cost IS NULL OR unit_cost >= 0",
+      "selling_price IS NULL OR selling_price >= 0"
+    ]
+  }
 }
 
 WITH latest AS (

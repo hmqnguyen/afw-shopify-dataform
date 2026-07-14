@@ -5,7 +5,17 @@ config {
   bigquery: {
     clusterBy: ["brand", "customer_id"]
   },
-  tags: ["shopify", "staging", "pii-processed"]
+  tags: ["shopify", "staging", "pii-processed"],
+  assertions: {
+    nonNull: ["customer_id", "brand", "channel"],
+    rowConditions: [
+      "customer_id LIKE 'gid://shopify/Customer/%'",
+      "channel = 'shopify'",
+      "number_of_orders IS NULL OR number_of_orders >= 0",
+      "amount_spent IS NULL OR amount_spent >= 0",
+      "email_hash IS NULL OR LENGTH(email_hash) = 64"
+    ]
+  }
 }
 
 WITH latest AS (

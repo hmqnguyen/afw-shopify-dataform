@@ -1,9 +1,15 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_master",
   description: "Master: 1 dòng/line item giỏ bỏ quên — conform + context checkout (ngày, đã recover, khách, geo). Nền phân tích SKU bị bỏ giỏ (mở khóa widget 'SKU bị bỏ giỏ nhiều nhất' của SHOP-03 sau).",
   tags: ["shopify", "master"],
-  assertions: { uniqueKey: ["checkout_id", "line_item_id"] }
+  assertions: {
+    uniqueKey: ["checkout_id", "line_item_id"],
+    nonNull: ["checkout_id", "line_item_id", "brand"],
+    rowConditions: [
+      "line_value_at_risk IS NULL OR line_value_at_risk >= 0"
+    ]
+  }
 }
 
 WITH lines AS (

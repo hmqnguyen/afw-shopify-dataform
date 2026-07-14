@@ -1,6 +1,6 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_mart",
   description: "SHOP-02 Hiệu suất bán hàng — doanh thu SKU×ngày kèm tên variant/product (drill product→SKU→variant).",
   tags: ["shopify", "mart"]
 }

@@ -1,6 +1,6 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_mart",
   description: "SHOP-03 Phễu chuyển đổi — giỏ bỏ quên theo ngày: số giỏ, recover, tỷ lệ recover, doanh thu treo, giá trị đã recover.",
   tags: ["shopify", "mart"]
 }

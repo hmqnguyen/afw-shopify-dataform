@@ -1,9 +1,18 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_master",
   description: "Master: 1 dòng/line item đơn hàng — conform + gắn context đơn (ngày, trạng thái, khách) + PHÂN BỔ order-level discount & refund xuống dòng theo tỷ trọng gross. Là NỀN SKU-level tái dùng cho mọi fact/phân tích tới SKU (fact_sku_pnl_daily build trên bảng này).",
   tags: ["shopify", "master"],
-  assertions: { uniqueKey: ["line_item_id"] }
+  assertions: {
+    uniqueKey: ["line_item_id"],
+    nonNull: ["line_item_id", "order_id", "order_date"],
+    rowConditions: [
+      "gross_share BETWEEN -0.0001 AND 1.0001",
+      "discount_alloc >= -0.01",
+      "refund_alloc >= -0.01",
+      "line_gross IS NULL OR line_gross >= 0"
+    ]
+  }
 }
 
 WITH lines AS (
@@ -24,6 +33,7 @@ WITH lines AS (
     li.current_quantity,
     li.original_unit_price,
     li.discounted_unit_price,
+    li.is_test,
     li.total_discount                                                          AS line_discount,
     li.quantity * COALESCE(li.original_unit_price, li.discounted_unit_price, 0) AS line_gross
   FROM ${ref("stg_shopify_order_line_items")} li
@@ -81,6 +91,7 @@ SELECT
   l.original_unit_price,
   l.discounted_unit_price,
   l.line_discount,
+  l.is_test,
   l.line_gross,
   g.order_gross,
   COALESCE(SAFE_DIVIDE(l.line_gross, NULLIF(g.order_gross, 0)), 0)                    AS gross_share,

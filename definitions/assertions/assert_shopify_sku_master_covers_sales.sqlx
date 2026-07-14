@@ -1,0 +1,12 @@
+config {
+  type: "assertion",
+  tags: ["shopify", "assertion", "cost-coverage"],
+  description: "Mọi SKU đã bán (order_line, sku IS NOT NULL) phải có trong master_shopify_sku để lấy COGS. VI PHẠM = SKU bán ra thiếu master → cogs NULL, P&L thiếu chi phí. Liên quan F3/F5 trong review — dự kiến FIRE trên snapshot backfill hiện tại (master_shopify_sku mới phủ SKU có trong feed cost)."
+}
+
+-- Trả về CÁC SKU VI PHẠM. Rỗng = pass.
+SELECT DISTINCT ol.sku
+FROM ${ref("master_shopify_order_line")} ol
+LEFT JOIN ${ref("master_shopify_sku")} s USING (sku)
+WHERE ol.sku IS NOT NULL
+  AND s.sku IS NULL

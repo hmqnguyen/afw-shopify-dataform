@@ -1,6 +1,6 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_mart",
   description: "SHOP-07 Tồn kho & Fulfillment — sức khỏe tồn kho theo SKU + days-of-supply (velocity 30 ngày). qty_available = warehouseATS (Lecangs). Cột đối soát Lecangs để NULL — cross-source (repo Lecangs), bổ sung sau.",
   tags: ["shopify", "mart"]
 }

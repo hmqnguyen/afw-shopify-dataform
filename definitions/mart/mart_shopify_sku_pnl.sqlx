@@ -1,6 +1,6 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_mart",
   description: "SHOP-06 SKU P&L — fact_sku_pnl_daily kèm tên + cost + margin %. gateway_fee NULL (Shopify không cấp). Discount đã phân bổ từ cấp order.",
   tags: ["shopify", "mart"]
 }

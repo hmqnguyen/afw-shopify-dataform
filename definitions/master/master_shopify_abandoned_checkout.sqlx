@@ -1,0 +1,36 @@
+config {
+  type: "table",
+  schema: "afw_shopify_master",
+  description: "Master: 1 dòng/giỏ bỏ quên (header) — conform + derive cờ recover. Nguồn cho fact_abandoned_checkout (giữ invariant: fact chỉ đọc master).",
+  tags: ["shopify", "master"],
+  assertions: {
+    uniqueKey: ["checkout_id"],
+    nonNull: ["checkout_id", "checkout_date", "brand"],
+    rowConditions: [
+      "channel = 'shopify'"
+    ]
+  }
+}
+
+SELECT
+  brand,
+  channel,
+  checkout_id,
+  checkout_name,
+  DATE(checkout_created_at)     AS checkout_date,
+  checkout_created_at,
+  checkout_updated_at,
+  completed_at,
+  is_recovered,
+  customer_id,
+  email_hash,
+  shipping_province_code,
+  shipping_country_code,
+  billing_province_code,
+  subtotal_price,
+  total_line_items_price,
+  total_discount,
+  total_tax,
+  total_price,
+  currency_code
+FROM ${ref("stg_shopify_abandoned_checkouts")}

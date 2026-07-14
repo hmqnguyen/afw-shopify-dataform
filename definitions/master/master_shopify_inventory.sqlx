@@ -1,9 +1,15 @@
 config {
   type: "table",
-  schema: "afw_shopify_fact",
+  schema: "afw_shopify_master",
   description: "Master: tồn kho hiện tại 1 dòng/SKU×location (snapshot is_latest). qty_available = warehouseATS phía Shopify (Lecangs), KHÔNG phải channelATS.",
   tags: ["shopify", "master"],
-  assertions: { uniqueKey: ["sku", "location_id"] }
+  assertions: {
+    uniqueKey: ["sku", "location_id"],
+    nonNull: ["location_id", "variant_id", "brand"],
+    rowConditions: [
+      "channel = 'shopify'"
+    ]
+  }
 }
 
 SELECT

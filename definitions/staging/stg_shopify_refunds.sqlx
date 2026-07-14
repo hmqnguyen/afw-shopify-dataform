@@ -6,7 +6,15 @@ config {
     partitionBy: "DATE(event_at)",
     clusterBy: ["brand", "order_id"]
   },
-  tags: ["shopify", "staging"]
+  tags: ["shopify", "staging"],
+  assertions: {
+    nonNull: ["order_id", "event_at", "refund_type", "brand", "channel"],
+    rowConditions: [
+      "channel = 'shopify'",
+      "refund_type IN ('refund', 'cancellation')",
+      "total_refunded_amount IS NULL OR total_refunded_amount >= 0"
+    ]
+  }
 }
 
 WITH latest_orders AS (

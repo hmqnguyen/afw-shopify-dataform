@@ -6,7 +6,16 @@ config {
     partitionBy: "DATE(order_created_at)",
     clusterBy: ["brand", "sku"]
   },
-  tags: ["shopify", "staging"]
+  tags: ["shopify", "staging"],
+  assertions: {
+    nonNull: ["line_item_id", "order_id", "brand", "channel"],
+    rowConditions: [
+      "line_item_id LIKE 'gid://shopify/LineItem/%'",
+      "channel = 'shopify'",
+      "quantity IS NULL OR quantity >= 0",
+      "original_unit_price IS NULL OR original_unit_price >= 0"
+    ]
+  }
 }
 
 WITH latest_orders AS (
@@ -38,6 +47,7 @@ SELECT
   SAFE_CAST(JSON_VALUE(li, '$.originalUnitPriceSet.shopMoney.amount') AS NUMERIC)    AS original_unit_price,
   SAFE_CAST(JSON_VALUE(li, '$.discountedUnitPriceSet.shopMoney.amount') AS NUMERIC)  AS discounted_unit_price,
   SAFE_CAST(JSON_VALUE(li, '$.totalDiscountSet.shopMoney.amount') AS NUMERIC)        AS total_discount,
+  COALESCE(SAFE_CAST(JSON_VALUE(o.raw_payload, '$.test') AS BOOL), FALSE) AS is_test,
   o.brand,
   'shopify'                                                              AS channel,
   o._ingested_at,
@@ -45,4 +55,4 @@ SELECT
 FROM latest_orders o,
 UNNEST(JSON_QUERY_ARRAY(o.raw_payload, '$.lineItems.edges')) AS edge,
 UNNEST([JSON_QUERY(edge, '$.node')]) AS li
-WHERE COALESCE(SAFE_CAST(JSON_VALUE(o.raw_payload, '$.test') AS BOOL), FALSE) = FALSE
+-- KHÔNG lọc test ở staging: is_test là CỘT, quy tắc kinh doanh áp ở fact/mart.

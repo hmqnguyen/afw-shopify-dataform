@@ -6,7 +6,14 @@ config {
     partitionBy: "DATE(processed_at)",
     clusterBy: ["brand", "order_id"]
   },
-  tags: ["shopify", "staging"]
+  tags: ["shopify", "staging"],
+  assertions: {
+    nonNull: ["transaction_id", "order_id", "processed_at", "brand", "channel"],
+    rowConditions: [
+      "channel = 'shopify'",
+      "amount IS NULL OR amount >= 0"
+    ]
+  }
 }
 
 WITH latest AS (
@@ -27,9 +34,10 @@ SELECT
   JSON_VALUE(raw_payload, '$.paymentMethod')                             AS payment_method,
   TIMESTAMP(JSON_VALUE(raw_payload, '$.processedAt'))                    AS processed_at,
   JSON_VALUE(raw_payload, '$.remoteReference')                           AS remote_reference,
+  COALESCE(SAFE_CAST(JSON_VALUE(raw_payload, '$.test') AS BOOL), FALSE) AS is_test,
   brand,
   'shopify'                                                              AS channel,
   _ingested_at,
   raw_payload
 FROM latest
-WHERE COALESCE(SAFE_CAST(JSON_VALUE(raw_payload, '$.test') AS BOOL), FALSE) = FALSE
+-- KHÔNG lọc test ở staging: is_test là CỘT, quy tắc kinh doanh áp ở fact/mart.

@@ -1,0 +1,18 @@
+config {
+  type: "assertion",
+  tags: ["shopify", "assertion"],
+  description: "Sanity phân bổ: gross_share phải trong [0,1] và net_line_revenue không âm bất thường. VI PHẠM = lỗi tính tỷ trọng/phân bổ ở master_shopify_order_line."
+}
+
+-- Trả về CÁC DÒNG VI PHẠM. Rỗng = pass.
+SELECT
+  line_item_id,
+  order_id,
+  gross_share,
+  discount_alloc,
+  refund_alloc,
+  net_line_revenue
+FROM ${ref("master_shopify_order_line")}
+WHERE gross_share < -0.0001
+   OR gross_share > 1.0001
+   OR net_line_revenue < -0.01

@@ -1,0 +1,24 @@
+config {
+  type: "assertion",
+  tags: ["shopify", "assertion-ops"],
+  description: "CỜ ĐỎ freshness: bảng theo thời gian đứng yên quá ngưỡng ⇒ job sync có thể đã chết (assert_no_date_gaps mù với ca này vì MAX lùi theo). Tag 'assertion-ops': KHÔNG chạy trong build chuẩn (--tags shopify) — chỉ chạy ở môi trường có sync định kỳ. Trên snapshot backfill 1 lần sẽ FIRE, đúng bản chất."
+}
+
+-- Trả về CÁC BẢNG QUÁ CŨ. Rỗng = pass.
+WITH freshness AS (
+  SELECT 'stg_shopify_orders'              AS table_name, MAX(order_updated_at) AS last_ts, 1 AS max_lag_days FROM ${ref("stg_shopify_orders")}
+  UNION ALL
+  SELECT 'stg_shopify_inventory_levels',   MAX(snapshot_at),  1 FROM ${ref("stg_shopify_inventory_levels")}
+  UNION ALL
+  SELECT 'stg_shopify_tender_transactions', MAX(processed_at), 2 FROM ${ref("stg_shopify_tender_transactions")}
+  UNION ALL
+  SELECT 'stg_shopify_abandoned_checkouts', MAX(checkout_updated_at), 2 FROM ${ref("stg_shopify_abandoned_checkouts")}
+)
+SELECT
+  table_name,
+  last_ts,
+  DATE_DIFF(CURRENT_DATE(), DATE(last_ts), DAY) AS days_stale,
+  max_lag_days
+FROM freshness
+WHERE last_ts IS NULL
+   OR DATE_DIFF(CURRENT_DATE(), DATE(last_ts), DAY) > max_lag_days

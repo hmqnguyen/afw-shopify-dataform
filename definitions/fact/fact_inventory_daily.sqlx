@@ -1,7 +1,7 @@
 config {
   type: "table",
   schema: "afw_shopify_fact",
-  description: "Tồn kho theo SKU theo ngày — snapshot MỚI NHẤT trong ngày mỗi location, sum theo SKU. Từ time-series stg_shopify_inventory_levels (poll 30 phút).",
+  description: "Tồn kho theo SKU theo ngày — snapshot MỚI NHẤT trong ngày mỗi location, sum theo SKU. Đọc từ master_shopify_inventory_snapshot (invariant: fact KHÔNG đọc staging/raw).",
   tags: ["shopify", "fact"],
   assertions: { uniqueKey: ["brand", "channel", "sku", "snapshot_date"] }
 }
@@ -15,7 +15,7 @@ WITH ranked AS (
       PARTITION BY brand, sku, location_id, DATE(snapshot_at)
       ORDER BY snapshot_at DESC
     ) AS rn
-  FROM ${ref("stg_shopify_inventory_levels")}
+  FROM ${ref("master_shopify_inventory_snapshot")}
 )
 
 SELECT

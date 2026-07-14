@@ -6,7 +6,15 @@ config {
     partitionBy: "DATE(checkout_created_at)",
     clusterBy: ["brand", "sku"]
   },
-  tags: ["shopify", "staging"]
+  tags: ["shopify", "staging"],
+  assertions: {
+    nonNull: ["line_item_id", "checkout_id", "brand", "channel"],
+    rowConditions: [
+      "channel = 'shopify'",
+      "quantity IS NULL OR quantity >= 0",
+      "original_unit_price IS NULL OR original_unit_price >= 0"
+    ]
+  }
 }
 
 WITH latest_checkouts AS (

@@ -1,0 +1,15 @@
+config {
+  type: "assertion",
+  tags: ["shopify", "assertion"],
+  description: "Chuỗi tồn kho không được rỗng khi raw có variant: nếu raw_shopify_inventory_levels có dòng mà stg_shopify_inventory_levels = 0 dòng ⇒ sync KHÔNG lấy được inventoryLevels edges (F2). VI PHẠM = 1 dòng cảnh báo — dự kiến FIRE trên snapshot hiện tại cho tới khi InventorySync được sửa."
+}
+
+-- Trả về 1 dòng nếu chuỗi tồn kho bị đứt. Rỗng = pass.
+WITH counts AS (
+  SELECT
+    (SELECT COUNT(*) FROM ${ref("raw_shopify_inventory_levels")}) AS raw_variant_rows,
+    (SELECT COUNT(*) FROM ${ref("stg_shopify_inventory_levels")}) AS stg_level_rows
+)
+SELECT raw_variant_rows, stg_level_rows
+FROM counts
+WHERE raw_variant_rows > 0 AND stg_level_rows = 0

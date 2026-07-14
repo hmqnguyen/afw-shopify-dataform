@@ -1,7 +1,7 @@
 config {
   type: "table",
   schema: "afw_shopify_fact",
-  description: "P&L theo SKU theo ngày (channel='shopify'). Nguồn: master_shopify_order_line (discount + refund đã phân bổ xuống dòng) + master_shopify_sku (COGS). gateway_fee = NULL (Shopify GraphQL không cấp). Bảng riêng Shopify; union cross-channel ở BI sau.",
+  description: "P&L theo SKU theo ngày (channel='shopify'). Loại đơn test tại đây (quy tắc kinh doanh ở fact, không ở staging). Nguồn: master_shopify_order_line (discount + refund đã phân bổ xuống dòng) + master_shopify_sku (COGS). gateway_fee = NULL (Shopify GraphQL không cấp). Bảng riêng Shopify; union cross-channel ở BI sau.",
   tags: ["shopify", "fact"],
   assertions: { uniqueKey: ["brand", "channel", "sku", "order_date"] }
 }
@@ -24,5 +24,8 @@ SELECT
       - ol.quantity * COALESCE(m.unit_cost, 0))                      AS net_margin
 FROM ${ref("master_shopify_order_line")} ol
 LEFT JOIN ${ref("master_shopify_sku")} m USING (brand, sku)
+-- Quy tắc kinh doanh áp Ở ĐÂY (không ở staging): loại đơn test.
+-- Staging giữ nguyên is_test làm CỘT để vẫn phân tích/đối soát được đơn test.
 WHERE ol.sku IS NOT NULL
+  AND NOT ol.is_test
 GROUP BY ol.brand, ol.channel, ol.sku, ol.order_date

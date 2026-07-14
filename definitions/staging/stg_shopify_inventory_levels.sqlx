@@ -6,7 +6,13 @@ config {
     partitionBy: "DATE(snapshot_at)",
     clusterBy: ["brand", "sku"]
   },
-  tags: ["shopify", "staging"]
+  tags: ["shopify", "staging"],
+  assertions: {
+    nonNull: ["variant_id", "location_id", "snapshot_at", "brand", "channel"],
+    rowConditions: [
+      "channel = 'shopify'"
+    ]
+  }
 }
 
 WITH exploded AS (

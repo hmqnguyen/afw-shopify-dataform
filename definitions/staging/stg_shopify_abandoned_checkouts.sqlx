@@ -6,7 +6,16 @@ config {
     partitionBy: "DATE(checkout_created_at)",
     clusterBy: ["brand", "is_recovered"]
   },
-  tags: ["shopify", "staging", "pii-processed"]
+  tags: ["shopify", "staging", "pii-processed"],
+  assertions: {
+    nonNull: ["checkout_id", "checkout_created_at", "brand", "channel"],
+    rowConditions: [
+      "channel = 'shopify'",
+      "total_price IS NULL OR total_price >= 0",
+      "total_discount IS NULL OR total_discount >= 0",
+      "email_hash IS NULL OR LENGTH(email_hash) = 64"
+    ]
+  }
 }
 
 WITH latest AS (
